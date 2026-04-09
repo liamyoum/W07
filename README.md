@@ -1,141 +1,132 @@
-# 📘 Docker + VSCode DevContainer 기반 C 개발 환경 구축 가이드 (MallocLab)
+# Malloc Lab
 
-이 문서는 **Windows**와 **macOS** 사용자가 Docker와 VSCode DevContainer 기능을 활용하여 C 개발 및 디버깅 환경을 빠르게 구축할 수 있도록 도와줍니다.
+이 저장소는 **CS:APP Malloc Lab**을 Docker + VSCode DevContainer 환경에서 바로 실습할 수 있도록 구성한 저장소입니다.  
+핵심 목표는 **C 언어로 `malloc`, `free`, `realloc`을 직접 구현**해 보면서 동적 메모리 할당기와 힙 메모리 관리 방식을 이해하는 것입니다.
 
-[**주의**] 기존 차수와 다른 점만 확인하시면 4장부터 6장만 확인하시면 됩니다.
+지난 주에 사용했던 `malloc`을 이번 주에는 직접 만들어 봅니다.  
+랩 코드를 수정하고 채점 프로그램을 실행하면서 점수를 확인할 수 있으므로, 메모리와 포인터를 손으로 다뤄 보는 데 집중할 수 있습니다.
 
----
+## 학습 목표
 
-## 1. Docker란 무엇인가요?
+- 동적 메모리 할당이 어떻게 동작하는지 이해하기
+- C 언어 포인터 연산과 메모리 레이아웃에 익숙해지기
+- 힙 블록의 분할, 병합, 재사용 과정을 직접 구현해 보기
+- 메모리 단편화와 할당 정책의 trade-off를 체감하기
+- `implicit free list`를 시작으로 더 나은 allocator 설계를 확장해 보기
 
-**Docker**는 애플리케이션을 어떤 컴퓨터에서든 **동일한 환경에서 실행**할 수 있게 도와주는 **가상화 플랫폼**입니다.  
+## 학습 키워드
 
-Docker는 다음 구성요소로 이루어져 있습니다:
+- 시스템 콜
+- 데이터 세그먼트와 힙
+- 가상 메모리
+- 메모리 단편화
+- `sbrk`, `mmap`
+- alignment
+- header / footer
+- boundary tag
+- coalescing
+- free list
 
-- **Docker Engine**: 컨테이너를 실행하는 핵심 서비스
-- **Docker Image**: 컨테이너 생성에 사용되는 템플릿 (레시피 📃)
-- **Docker Container**: 이미지를 기반으로 생성된 실제 실행 환경 (요리 🍜)
+## 이 저장소에서 구현하는 것
 
-### ✅ AWS EC2와의 차이점
+과제의 중심은 `malloc-lab/mm.c`입니다. 아래 4개 함수를 직접 구현합니다.
 
-| 구분 | EC2 같은 VM | Docker 컨테이너 |
-|------|-------------|-----------------|
-| 실행 단위 | OS 포함 전체 | 애플리케이션 단위 |
-| 실행 속도 | 느림 (수십 초 이상) | 매우 빠름 (거의 즉시) |
-| 리소스 사용 | 무거움 | 가벼움 |
+- `mm_init`
+- `mm_malloc`
+- `mm_free`
+- `mm_realloc`
 
----
+작성한 코드는 `malloc-lab/mdriver`가 테스트하고 채점합니다.  
+처음에는 **implicit list 방식**으로 기본 동작을 완성하는 것이 목표이고, 여유가 있다면 다음 방식으로 개선해 볼 수 있습니다.
 
-## 2. VSCode DevContainer란 무엇인가요?
+- explicit free list
+- segregated free list
+- buddy system
 
-**DevContainer**는 VSCode에서 Docker 컨테이너를 **개발 환경**처럼 사용할 수 있게 해주는 기능입니다.
+## 실제 시스템과의 연결
 
-- 코드를 실행하거나 디버깅할 때 **컨테이너 내부 환경에서 동작**
-- 팀원 간 **환경 차이 없이 동일한 개발 환경 구성** 가능
-- `.devcontainer` 폴더에 정의된 설정을 VSCode가 읽어 자동 구성
+실제 운영체제의 메모리 할당기는 필요할 때 커널에 메모리를 요청하며, 이 과정에서 `sbrk`나 `mmap` 같은 메커니즘이 등장합니다.  
+이 저장소에서는 `malloc-lab/memlib.c`의 `mem_sbrk`가 그 역할을 단순화해서 흉내 냅니다. 덕분에 운영체제 의존성보다는 **allocator의 정책과 자료구조**에 집중할 수 있습니다.
 
----
+즉, 이 랩은 단순히 함수를 몇 개 작성하는 과제가 아니라 다음 질문에 답해 보는 과정입니다.
 
-## 3. Docker Desktop 설치하기
+- 빈 블록을 어떻게 찾을 것인가?
+- 남는 공간은 어떻게 분할할 것인가?
+- 해제된 블록은 언제, 어떻게 병합할 것인가?
+- `realloc`은 복사를 최소화하면서 어떻게 처리할 것인가?
+- 성능과 메모리 효율 사이에서 어떤 선택을 할 것인가?
 
-1. Docker 공식 사이트에서 설치 파일 다운로드:  
-   👉 [https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
+## 저장소 구성
 
-2. 설치 후 Docker Desktop 실행  
-   - Windows: Docker 아이콘이 트레이에 떠야 함  
-   - macOS: 상단 메뉴바에 Docker 아이콘 확인
+```text
+malloc_lab_docker/
+├── .devcontainer/            # Docker / DevContainer 설정
+├── .vscode/                  # VSCode 빌드/디버깅 설정
+├── README.md                 # 저장소 안내 문서
+└── malloc-lab/
+    ├── mm.c                  # 직접 구현할 allocator 코드
+    ├── mm.h                  # allocator 인터페이스
+    ├── mdriver.c             # 테스트 및 채점 드라이버
+    ├── memlib.c              # 힙과 mem_sbrk를 흉내 내는 메모리 모델
+    ├── traces/               # 다양한 할당/해제 패턴 테스트 케이스
+    ├── Makefile              # 빌드 스크립트
+    ├── README.md             # 원본 handout에 가까운 간단한 안내
+    ├── 7주차_학습가이드_핵심요약.md
+    ├── CSAPP 9장 입문편 — 가상 메모리 (9.1_9.12 전체).pdf
+    └── CSAPP 9장 심화편 — 가상 메모리 (9.1_9.12 전체).pdf
+```
 
----
+## 시작 방법
 
-## 4. 프로젝트 파일 다운로드 (히스토리 없이)
-
-터미널(CMD, PowerShell, zsh 등)에서 아래 명령어로 프로젝트 폴더만 내려받습니다:
+### 1. 저장소 열기
 
 ```bash
 git clone --depth=1 https://github.com/krafton-jungle/malloc_lab_docker.git
+cd malloc_lab_docker
 ```
 
-- `--depth=1` 옵션은 git commit 히스토리를 생략하고 **최신 파일만 가져옵니다.**
+VSCode에서 폴더를 연 뒤 `Dev Containers: Reopen in Container`를 실행하면 동일한 C 개발 환경으로 실습할 수 있습니다.
 
-### 📂 다운로드 후 폴더 구조 설명
-
-```
-malloc_lab_docker/
-├── .devcontainer/
-│   ├── devcontainer.json      # VSCode에서 컨테이너 환경 설정
-│   └── Dockerfile             # C 개발 환경 이미지 정의
-│
-├── .vscode/
-│   ├── launch.json            # 디버깅 설정 (F5 실행용)
-│   └── tasks.json             # 컴파일 자동화 설정
-│
-├── malloc-lab
-│   ├── short1-bal.rep          # 테스트 케이스
-│   ├── Makefile                # 과제를 컴파일하고 테스트하기 위한 파일
-│   └── README.md               # malloc-lab 과제 설명
-│
-└── README.md  # 설치 및 사용법 설명 문서
-```
-
----
-
-## 5. VSCode에서 해당 프로젝트 폴더 열기
-
-1. VSCode를 실행
-2. `파일 → 폴더 열기`로 방금 클론한 `malloc_lab_docker` 폴더를 선택
-
----
-
-## 6. 개발 컨테이너: 컨테이너에서 열기
-
-1. VSCode에서 `Ctrl+Shift+P` (Windows/Linux) 또는 `Cmd+Shift+P` (macOS)를 누릅니다.
-2. 명령어 팔레트에서 `Dev Containers: Reopen in Container`를 선택합니다.
-3. 이후 컨테이너가 자동으로 실행되고 빌드됩니다. 처음 컨테이너를 열면 빌드하는 시간이 오래걸릴 수 있습니다. 빌드 후, 프로젝트가 **컨테이너 안에서 실행됨**.
-
----
-
-## 7. C 파일에 브레이크포인트 설정 후 디버깅 (F5)
-
-이제 본격적으로 문제를 풀 시간입니다. `malloc-lab/README.md` 파일을 참조하셔서 rbtree 문제를 풀어보세요.
-
-C 언어로 문제를 풀다가 디버깅이 필요하시면 소스코드에 BreakPoint를 설정한 뒤에 키보드에서 `F5`를 눌러 디버깅을 시작할 수 있습니다.`F5`를 누르면 `malloc-lab`폴더에서 `mdriver -V -f short1-bal.rep` 를 실행하여 테스트 코드를 디버깅 모드로 실행합니다.
-- 참고로 변수, 메모리, 스택, 출력 등을 VSCode에서 확인할 수도 있습니다.
-
----
-
-## 8. 새로운 Git 리포지토리에 Commit & Push 하기
-
-금주 프로젝트를 개인 Git 리포와 같은 다른 리포지토리에 업로드하려면, 기존 Git 연결을 제거하고 새롭게 초기화해야 합니다.
-
-### ✅ 완전히 새로운 Git 리포로 업로드하는 방법
-
-아래 명령어를 순서대로 실행하세요:
+### 2. 빌드
 
 ```bash
-rm -rf .git
-git init
-git remote add origin https://github.com/myusername/my-new-repo.git
-git add .
-git commit -m "Clean start"
-git push -u origin main
+cd malloc-lab
+make
 ```
 
-### 📌 설명
+### 3. 기본 테스트 실행
 
-- `rm -rf .git`: 기존 Git 기록과 연결을 완전히 삭제합니다.
-- `git init`: 현재 폴더를 새로운 Git 리포지토리로 초기화합니다.
-- `git remote add origin ...`: 새로운 리포지토리 주소를 origin으로 등록합니다.
-- `git add .` 및 `git commit`: 모든 파일을 커밋합니다.
-- `git push`: 새로운 리포에 최초 업로드(Push)합니다.
+```bash
+./mdriver
+```
 
-이 과정을 거치면 기존 리포와의 연결은 완전히 제거되고, **새로운 독립적인 프로젝트로 관리**할 수 있습니다.
+특정 trace만 골라서 실행할 수도 있습니다.
 
-## 🎉 끝
+```bash
+./mdriver -f traces/binary2-bal.rep
+```
 
-이제 Docker와 DevContainer를 활용한 C 개발 환경이 완성되었습니다.
+VSCode에서는 `F5`로 `mdriver -V -f short1-bal.rep` 디버깅을 바로 시작할 수 있습니다.
 
-- (주의) 위 내용은 처음 설치하는 사람을 기준으로 작성된 내용입니다. malloc-lab 폴더에서 있는 프로젝트를 반복적으로 개발할 경우 5에서 7장의 내용만 반복하시면 됩니다.
-- 어떤 운영체제에서든 동일한 환경으로 개발 가능  
-- VSCode 내에서 코드 작성, 컴파일, 디버깅까지 한 번에 가능
+## 권장 진행 순서
 
----
+1. `make` 후 `./mdriver`를 실행해 현재 상태를 확인합니다.
+2. 초기에는 `out of memory` 오류가 날 수 있으니, 먼저 **implicit list 기반 malloc**을 구현해 이 오류를 없앱니다.
+3. 블록 분할, 병합, 재할당 로직을 정리해 기본 점수를 확보합니다.
+4. 이후 `explicit list`, `seglist` 같은 구조를 적용해 성능과 utilization 점수를 높여 봅니다.
+
+개념이 어렵다면 **CS:APP 3/e 9.9장**을 천천히 읽으면서 진행하는 것이 가장 좋습니다.  
+교재의 코드를 이해하고 직접 옮겨 써서 동작시켜 보는 것부터 시작하면 됩니다.
+
+## 참고 자료
+
+- CMU Malloc Lab 문서: [malloclab.pdf](http://csapp.cs.cmu.edu/3e/malloclab.pdf)
+- 저장소 내 학습 자료:
+  - `malloc-lab/CSAPP 9장 입문편 — 가상 메모리 (9.1_9.12 전체).pdf`
+  - `malloc-lab/CSAPP 9장 심화편 — 가상 메모리 (9.1_9.12 전체).pdf`
+  - `malloc-lab/7주차_학습가이드_핵심요약.md`
+
+## 요약
+
+이 저장소는 단순한 실행 환경이 아니라, **메모리 할당기를 직접 구현하며 시스템 프로그래밍 감각을 익히는 실습 저장소**입니다.  
+`mm.c`를 고치고 `mdriver`로 검증하면서, 포인터·힙·단편화·할당 전략이 실제로 어떤 의미를 가지는지 확인해 보세요.
