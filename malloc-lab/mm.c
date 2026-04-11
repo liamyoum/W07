@@ -72,7 +72,32 @@ team_t team = {
  */
 int mm_init(void)
 {   
+    void *heap_listp = mem_sbrk(4 * WSIZE);
+
+    // if initialization fails
+    int errno = 0;
+    if (heap_listp == (void *)-1) {
+        printf("Can't initialize due to error number %i", errno);
+        return -1;
+    }
     
+    /* Create the initial empty heap */
+
+    PUT(heap_listp, 0);                             /* Alignment Padding */
+    PUT(heap_listp + WSIZE, PACK(DWSIZE, 1));       /* Prologue header */
+    PUT(heap_listp + (2 * WSIZE), PACK(DWSIZE, 1)); /* Prologue footer */
+    PUT(heap_listp + (3 * WSIZE), PACK(0, 1));      /* Epilogue header */
+    heap_listp += DWSIZE;   // 이제 payload 앞, 여기서는 Prologue footer의 끝과 epilogue header의 시작을 가리킴
+
+    /* Extend the empty heap with a free block of CHUNKSIZE bytes */
+    /* 왜 CHUNKSIZE를 WSIZE로 나눠주는 걸까? -> extend_heap이 인자로 words를 받음. 그래서 4096을 WSIZE인 4로 나눠주면, 워드가 1024개. 
+       왜 그렇게 하는데? -> CHUNKSIZE 그대로 받으면 Bytes를 그대로 받는건데, extend_heap 내부 함수 구현을 보면 8 기준 alignment 하기 위해 홀수 / 짝수 분기 나눠 처리해줌. 바이트 그대로 받으면 8의 배수 맞추기 위해서 더 많은 조건 분기가 필요하고, 귀찮아질 것 */
+    if (extend_heap(CHUNKSIZE / WSIZE) == NULL) {
+        printf("Can't initialize due to error number %i", errno);
+        return -1;
+    }
+    
+    return 0;
 }
 
 /*
