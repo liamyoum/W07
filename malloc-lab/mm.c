@@ -110,15 +110,38 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    int newsize = ALIGN(size + SIZE_T_SIZE);
-    void *p = mem_sbrk(newsize);
-    if (p == (void *)-1)
+    size_t asize;           /* Adjusted block size */
+    size_t extendsize;      /* Amount to extend heap if no fit */
+    char *bp;
+
+    /* Ignore spurious requests */
+    if (size == 0) {
         return NULL;
-    else
-    {
-        *(size_t *)p = size;
-        return (void *)((char *)p + SIZE_T_SIZE);
     }
+
+    /* Adjust block size to include overhead and alignment requests */
+    if (size <= DWSIZE) {
+        asize = 2 * DWSIZE; // size가 8이하면, header(4) + footer(4) + 요청 size 해서 최대 16이므로. minimum block size = 16
+    }
+    else {
+        asize = DWSIZE * ((size + DWSIZE + (DWSIZE - 1)) / DWSIZE); // payload 크기에 overhead(header & footer)를 더한 뒤 8의 배수로 올림하는 공식
+    }
+
+    /* Search the free list for a fit */
+    bp = find_fit(asize);
+    if (bp != NULL) {
+        place(bp, asize);
+        return bp;
+    }
+
+    /* No fit found. Get more memory and place the block */
+    extendsize = MAX(asize, CHUNKSIZE);
+    bp = extend_heap(extendsize / WSIZE);
+    if (bp == NULL) {
+        return NULL;
+    }
+    place(bp, asize);
+    return bp;
 }
 
 /*
@@ -138,19 +161,7 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
-
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-        return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    return NULL; // Not implemented yet
 }
 
 static void *extend_heap(size_t words) {
@@ -215,6 +226,8 @@ static void *find_fit(size_t asize) {
             return bp;
         }
     }
+
+    return NULL;
 }
 
 static void place(void *bp, size_t asize) {
