@@ -209,9 +209,28 @@ static void *coalesce(void *bp) {
 static void *find_fit(size_t asize) {
     void *bp;
 
+    /* First Fit*/ // Need to test Next Fit additionally
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
             return bp;
         }
+    }
+}
+
+static void place(void *bp, size_t asize) {
+    size_t csize = GET_SIZE(HDRP(bp));
+
+    // 만약 요청 들어온 크기를 현재 블록에 할당했음에도 남은 크기가 최소 블록 크기인 16바이트 이상이면
+    if ((csize - asize) >= (2 * DWSIZE)) {
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+
+        bp = NEXT_BLKP(bp); // 요청 받은 asize 만큼 앞으로 이동하고
+        PUT(HDRP(bp), PACK(csize - asize, 0)); // 그 자리에서 새로 header 써준다. 이전 블록 - 요청 받은 크기 (최소 16) 만큼으로.
+        PUT(FTRP(bp), PACK(csize - asize, 0));
+    }
+    else {
+        PUT(HDRP(bp), PACK(csize, 1)); // 그게 아니면 걍 블록 전체 크기로 alloc bit만 바꿔준다.
+        PUT(FTRP(bp), PACK(csize, 1));
     }
 }
