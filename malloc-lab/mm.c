@@ -60,24 +60,27 @@ team_t team = {
 #define GET_ALLOC(p)    (GET(p) & 0x1) // 헤더 값에서 마지막 1비트(0x1)만 남겨 alloc 상태 확인
 
 /* Given block ptr bp, compute address of its header and footer */
-#define HDRP(bp)        ((char *)(bp) - FTSIZE) // header 주소로 가기
-#define FTRP(bp)        ((char *)(bp) + GET_SIZE(HDRP(bp)) - FTSIZEDOUBLE) // footer 주소로 가기
+#define HDRP(bp)        ((char *)(bp) - WSIZE) // header 주소로 가기
+#define FTRP(bp)        ((char *)(bp) + GET_SIZE(HDRP(bp)) - DWSIZE) // footer 주소로 가기
 
 /* Given block ptr bp, compute address of next and previous blocks */
 #define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp))) // 현재 블록 헤더로 가서 사이즈 가져오고 그만큼 빼기
-#define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - FTSIZEDOUBLE))) // 이전 블록 헤더로 가서 사이즈 가져오고 그만큼 빼기
+#define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DWSIZE))) // 이전 블록 헤더로 가서 사이즈 가져오고 그만큼 빼기
+
+/* Static */
+static char *heap_listp;
+static void *extend_heap(size_t words);
+
 
 /*
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {   
-    void *heap_listp = mem_sbrk(4 * WSIZE);
+    heap_listp = mem_sbrk(4 * WSIZE);
 
     // if initialization fails
-    int errno = 0;
     if (heap_listp == (void *)-1) {
-        printf("Can't initialize due to error number %i", errno);
         return -1;
     }
     
@@ -87,13 +90,12 @@ int mm_init(void)
     PUT(heap_listp + WSIZE, PACK(DWSIZE, 1));       /* Prologue header */
     PUT(heap_listp + (2 * WSIZE), PACK(DWSIZE, 1)); /* Prologue footer */
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1));      /* Epilogue header */
-    heap_listp += DWSIZE;   // 이제 payload 앞, 여기서는 Prologue footer의 끝과 epilogue header의 시작을 가리킴
+    heap_listp += DWSIZE;   // 이제 payload 앞, 여기서는 Prologue header와 footer 사이에 있음.
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     /* 왜 CHUNKSIZE를 WSIZE로 나눠주는 걸까? -> extend_heap이 인자로 words를 받음. 그래서 4096을 WSIZE인 4로 나눠주면, 워드가 1024개. 
        왜 그렇게 하는데? -> CHUNKSIZE 그대로 받으면 Bytes를 그대로 받는건데, extend_heap 내부 함수 구현을 보면 8 기준 alignment 하기 위해 홀수 / 짝수 분기 나눠 처리해줌. 바이트 그대로 받으면 8의 배수 맞추기 위해서 더 많은 조건 분기가 필요하고, 귀찮아질 것 */
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL) {
-        printf("Can't initialize due to error number %i", errno);
         return -1;
     }
     
@@ -144,4 +146,6 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
-void *extend_heap();
+static void *extend_heap(size_t words) {
+    return NULL; // Not implemented yet
+}
