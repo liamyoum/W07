@@ -42,12 +42,37 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
+#define WSIZE 4 /* Word Size (Header/Footer Size) (bytes)*/
+#define DWSIZE 8 /* Double Word Size (bytes) */
+#define CHUNKSIZE (1<<12) /* 1을 왼쪽으로 12비트 밀라는 뜻, 4096바이트. Heap 확장 기본 단위로 4KB */
+
+#define MAX(x, y) ((x) > (y)? (x) : (y))
+
+/* Pack a size and allocated bit into a word */
+#define PACK(size, alloc) ((size) | (alloc)) // 비트 연산자 |(OR) 사용, 두 비트 비교해서 하나라도 1이면 1이기에, 이 둘을 한 숫자로 합치는 것. 1 word에 size랑 alloc bit 넣어주는 놈
+
+/* Read and write a word at address p */
+#define GET(p)          (*(unsigned int *)(p)) // p를 unsigned int * 타입 포인터로 간주하고, 그 포인터가 가리키는 메모리 위치의 값을 꺼낸다
+#define PUT(p, val)     (*(unsigned int *)(p) = (val)) // 그 메모리 위치의 값을 val로 교체
+
+/* Read the size and allocated fields from address p */
+#define GET_SIZE(p)     (GET(p) & ~0x7) // 비트 연산자 &(AND) 사용, 두 비트 비교해서 둘 다 1이어야만 1. ~0x7은 16진수 7을 비트 뒤집은거고, 이진수로는 111...1000 이라서, 마지막 3비트만 0이고 나머지는 다 1인 마스크. -> 마지막 3비트 없애고 size만 꺼내겠다.
+#define GET_ALLOC(p)    (GET(p) & 0x1) // 헤더 값에서 마지막 1비트(0x1)만 남겨 alloc 상태 확인
+
+/* Given block ptr bp, compute address of its header and footer */
+#define HDRP(bp)        ((char *)(bp) - FTSIZE) // header 주소로 가기
+#define FTRP(bp)        ((char *)(bp) + GET_SIZE(HDRP(bp)) - FTSIZEDOUBLE) // footer 주소로 가기
+
+/* Given block ptr bp, compute address of next and previous blocks */
+#define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp))) // 현재 블록 헤더로 가서 사이즈 가져오고 그만큼 빼기
+#define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - FTSIZEDOUBLE))) // 이전 블록 헤더로 가서 사이즈 가져오고 그만큼 빼기
+
 /*
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
-{
-    return 0;
+{   
+    
 }
 
 /*
@@ -93,3 +118,5 @@ void *mm_realloc(void *ptr, size_t size)
     mm_free(oldptr);
     return newptr;
 }
+
+void *extend_heap();
