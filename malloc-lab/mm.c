@@ -171,3 +171,35 @@ static void *extend_heap(size_t words) {
     /* Coalesce if the previous block was free */
     return coalesce(bp);
 }
+
+static void *coalesce(void *bp) {
+    size_t prev_alloc_bit = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t next_alloc_bit = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
+
+    /* Case 1: Both are already allocated */
+    if (prev_alloc_bit && next_alloc_bit) {
+        return bp;
+    }
+    /* Case 2: Prev is allocated and next is free */
+    else if (prev_alloc_bit && !next_alloc_bit) {
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0)); // 이미 윗 줄에서 header가 갱신되었기 때문에, 이렇게 써도 NEXT_BLKP footer가 있던 주소에 가서 새로 쓸 수 있음.
+    }
+    /* Case 3: Prev is free and next is allocated */
+    else if (!prev_alloc_bit && next_alloc_bit) {
+        size += GET_SIZE(FTRP(PREV_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size ,0));
+        bp = PREV_BLKP(bp);
+    }
+    /* Case 4: Both are already free */
+    else {
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp))) + GET_SIZE(FTRP(PREV_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+    return bp;
+}
