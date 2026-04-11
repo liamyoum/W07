@@ -64,13 +64,13 @@ team_t team = {
 #define FTRP(bp)        ((char *)(bp) + GET_SIZE(HDRP(bp)) - DWSIZE) // footer 주소로 가기
 
 /* Given block ptr bp, compute address of next and previous blocks */
-#define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp))) // 현재 블록 헤더로 가서 사이즈 가져오고 그만큼 빼기
-#define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DWSIZE))) // 이전 블록 헤더로 가서 사이즈 가져오고 그만큼 빼기
+#define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp))) // 다음 블록 payload 주소로 가기
+#define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DWSIZE))) // 이전 블록 payload 주소로 가기
 
 /* Static */
 static char *heap_listp;
 static void *extend_heap(size_t words);
-
+static void *coalesce(void *bp);
 
 /*
  * mm_init - initialize the malloc package.
@@ -124,6 +124,7 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+    
 }
 
 /*
@@ -147,5 +148,22 @@ void *mm_realloc(void *ptr, size_t size)
 }
 
 static void *extend_heap(size_t words) {
-    return NULL; // Not implemented yet
+    char *bp;
+    size_t size;
+
+    /* Allocate an even number of words to maintain alignment */
+    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
+
+    bp = mem_sbrk(size); /* 새로 확장된 free block의 payload 주소*/
+    if (bp == (void *)-1) {
+        return NULL;
+    }
+
+    /* Initialize free block header/footer and the new epilogue header */
+    PUT(HDRP(bp), PACK(size, 0));               /* Free block header */
+    PUT(FTRP(bp), PACK(size, 0));               /* Free block footer */
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));       /* New epilogue header */
+
+    /* Coalesce if the previous block was free */
+    return coalesce(bp);
 }
