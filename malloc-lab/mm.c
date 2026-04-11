@@ -157,11 +157,44 @@ void mm_free(void *ptr)
 }
 
 /*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ * mm_realloc - 기존 데이터를 최대한 보존하면서 block 크기 변경
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    return NULL; // Not implemented yet
+    void *newptr;
+    size_t copySize;
+
+    /* 기존 block이 없다는 뜻이니, 새로 할당하면 됨 */
+    if (ptr == NULL) {
+        return mm_malloc(size);
+    }
+    /* 새 크기가 0이면, 기존 block을 유지할 이유가 없으니 해제 */
+    if (size == 0) {
+        mm_free(ptr);
+        return NULL;
+    }
+    
+    /* 새 블록 크기 할당 받음 */
+    newptr = mm_malloc(size);
+    /* 새 할당이 실패하면 old block은 절대 건드리면 안됨 */
+    if (newptr == NULL) {
+        return NULL;
+    }
+
+    /* 복사할 크기 계산, old block의 payload 최대 크기(header와 footer 제외) 구하기 */
+    copySize = GET_SIZE(HDRP(ptr)) - DWSIZE;
+
+    /* min(old payload, new size) 만 복사, 왜? -> old block보다 더 많이 읽으면 안되고, new block보다 더 많이 쓰면 안됨.*/
+    if (size < copySize) { 
+        copySize = size;
+    }
+
+    /* 기존 payload 내용을 새 payload로 옮기기, header footer 안 건드리고 순수 데이터만 복사 */
+    memcpy(newptr, ptr, copySize);
+    /* old block free */
+    mm_free(ptr);
+    /* return new pointer */
+    return newptr;
 }
 
 static void *extend_heap(size_t words) {
