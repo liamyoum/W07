@@ -1,5 +1,5 @@
 /*
- * mm-naive.c - The fastest, least memory-efficient malloc package.
+ * mm.c - The fastest, least memory-efficient malloc package.
  *
  * In this naive approach, a block is allocated by simply incrementing
  * the brk pointer.  A block is pure payload. There are no headers or
@@ -67,13 +67,26 @@ team_t team = {
 #define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp))) // 다음 블록 payload 주소로 가기
 #define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DWSIZE))) // 이전 블록 payload 주소로 가기
 
+/* Macros for explicit free list */
+#define PTRSIZE         sizeof(char *)
+#define MINBLOCKSIZE    (WSIZE + PTRSIZE + PTRSIZE + WSIZE)
+/* 현재 free block 안의 이전 / 다음 free block 주소를 담고 있는 포인터 */
+#define PRED_PTR(bp)    ((char *)(bp))
+#define SUCC_PTR(bp)    ((char *)(bp) + PTRSIZE)
+/* 현재 free block의 이전 / 다음 free block 포인터 값 */
+#define PRED(bp)        (*(char **)(PRED_PTR(bp))) // PRED_PTR이 char ** 타입이고, 그 값(주소)을 *로 꺼내겠다는 뜻
+#define SUCC(bp)        (*(char **)(SUCC_PTR(bp)))
+
 /* Static */
 static char *heap_listp;
-static char *rover;
+static char *free_listp;
+// static char *rover; // for next_fit strategy
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
+static void insert_free_block(void *bp);
+static void remove_free_block(void *bp);
 
 /*
  * mm_init - initialize the malloc package.
@@ -81,6 +94,7 @@ static void place(void *bp, size_t asize);
 int mm_init(void)
 {   
     heap_listp = mem_sbrk(4 * WSIZE);
+    free_listp = NULL;
 
     // if initialization fails
     if (heap_listp == (void *)-1) {
@@ -95,7 +109,7 @@ int mm_init(void)
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1));      /* Epilogue header */
     heap_listp += DWSIZE;   // 이제 payload 앞, 여기서는 Prologue header와 footer 사이에 있음.
 
-    rover = heap_listp;
+    // rover = heap_listp; // for next_fit strategy
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     /* 왜 CHUNKSIZE를 WSIZE로 나눠주는 걸까? -> extend_heap이 인자로 words를 받음. 그래서 4096을 WSIZE인 4로 나눠주면, 워드가 1024개. 
        왜 그렇게 하는데? -> CHUNKSIZE 그대로 받으면 Bytes를 그대로 받는건데, extend_heap 내부 함수 구현을 보면 8 기준 alignment 하기 위해 홀수 / 짝수 분기 나눠 처리해줌. 바이트 그대로 받으면 8의 배수 맞추기 위해서 더 많은 조건 분기가 필요하고, 귀찮아질 것 */
@@ -120,13 +134,12 @@ void *mm_malloc(size_t size)
     if (size == 0) {
         return NULL;
     }
-
     /* Adjust block size to include overhead and alignment requests */
-    if (size <= DWSIZE) {
-        asize = 2 * DWSIZE; // size가 8이하면, header(4) + footer(4) + 요청 size 해서 최대 16이므로. minimum block size = 16
-    }
-    else {
-        asize = DWSIZE * ((size + DWSIZE + (DWSIZE - 1)) / DWSIZE); // payload 크기에 overhead(header & footer)를 더한 뒤 8의 배수로 올림하는 공식
+    asize = DWSIZE * ((size + DWSIZE + (DWSIZE - 1)) / DWSIZE); // payload 크기에 overhead(header & footer)를 더한 뒤 8의 배수로 올림하는 공식, 할당할 블록 찾는거라서 PRED_PTR, SUCC_PTR 크기까지 고려 안해도 됨 여기서는
+    if (asize < MINBLOCKSIZE) {
+        asize = MINBLOCKSIZE;
+        // explicit free list에서 free block은 pred/succ 포인터를 저장해야 하므로
+        // block 크기는 최소 MINBLOCKSIZE(24 bytes) 이상이어야 한다.
     }
 
     /* Search the free list for a fit */
@@ -228,89 +241,133 @@ static void *coalesce(void *bp) {
 
     /* Case 1: Both are already allocated */
     if (prev_alloc_bit && next_alloc_bit) {
-        return bp;
+        insert_free_block(bp);
     }
     /* Case 2: Prev is allocated and next is free */
     else if (prev_alloc_bit && !next_alloc_bit) {
+        remove_free_block(NEXT_BLKP(bp));
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0)); // 이미 윗 줄에서 header가 갱신되었기 때문에, 이렇게 써도 NEXT_BLKP footer가 있던 주소에 가서 새로 쓸 수 있음.
+        insert_free_block(bp);
     }
     /* Case 3: Prev is free and next is allocated */
     else if (!prev_alloc_bit && next_alloc_bit) {
+        remove_free_block(PREV_BLKP(bp));
         size += GET_SIZE(FTRP(PREV_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(bp), PACK(size ,0));
         bp = PREV_BLKP(bp);
+        insert_free_block(bp);
     }
     /* Case 4: Both are already free */
     else {
+        remove_free_block(PREV_BLKP(bp));
+        remove_free_block(NEXT_BLKP(bp));
         size += GET_SIZE(HDRP(NEXT_BLKP(bp))) + GET_SIZE(FTRP(PREV_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
+        insert_free_block(bp);
     }
 
-    /* coalesce 이후, next_fit에서 사용하는 rover가 payload의 내부 어딘가를 가리키고 있을 수 있어서, 조건 확인 후 병합된 블록의 payload 시작점으로 rover를 옮겨준다. */
-    if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp))) {
-        rover = bp;
-    }
+    // /* coalesce 이후, next_fit에서 사용하는 rover가 payload의 내부 어딘가를 가리키고 있을 수 있어서, 조건 확인 후 병합된 블록의 payload 시작점으로 rover를 옮겨준다. */
+    // if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp))) {
+    //     rover = bp;
+    // }
 
     return bp;
 }
 
 static void *find_fit(size_t asize) {
-    void *bp;
+    char *bp = free_listp;
+    
+    /* First Fit */
+    while (bp != NULL) {
+        if (GET_SIZE(HDRP(bp)) >= asize) {
+            return bp;
+        }
+        else {
+            bp = SUCC(bp);
+        }
+    }
+    return NULL;
 
-    // /* First Fit */
-    // for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-    //     if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+    // /* Next fit */
+    // char *old_rover = rover;
+    // /* 1차 탐색, rover부터 block 끝까지 */
+    // while (GET_SIZE(HDRP(rover)) > 0) {
+    //     if (!GET_ALLOC(HDRP(rover)) && (asize <= GET_SIZE(HDRP(rover)))) {
+    //         bp = rover;
+    //         rover = NEXT_BLKP(rover);
     //         return bp;
     //     }
+    //     rover = NEXT_BLKP(rover);
     // }
 
-    /* Next fit */
-    char *old_rover = rover;
-    /* 1차 탐색, rover부터 block 끝까지 */
-    while (GET_SIZE(HDRP(rover)) > 0) {
-        if (!GET_ALLOC(HDRP(rover)) && (asize <= GET_SIZE(HDRP(rover)))) {
-            bp = rover;
-            rover = NEXT_BLKP(rover);
-            return bp;
-        }
-        rover = NEXT_BLKP(rover);
-    }
+    // /* 2차 탐색, block 처음부터 rover 전까지*/
+    // rover = heap_listp;
+    // while (rover < old_rover) {
+    //     if (!(GET_ALLOC(HDRP(rover))) && (asize <= GET_SIZE(HDRP(rover)))) {
+    //         bp = rover;
+    //         rover = NEXT_BLKP(rover);
+    //         return bp;
+    //     }
+    //     rover = NEXT_BLKP(rover);
+    // }
 
-    /* 2차 탐색, block 처음부터 rover 전까지*/
-    rover = heap_listp;
-    while (rover < old_rover) {
-        if (!(GET_ALLOC(HDRP(rover))) && (asize <= GET_SIZE(HDRP(rover)))) {
-            bp = rover;
-            rover = NEXT_BLKP(rover);
-            return bp;
-        }
-        rover = NEXT_BLKP(rover);
-    }
-
-    /* next_fit으로 못 찾았음 */
-    rover = old_rover;
+    // /* next_fit으로 못 찾았음 */
+    // rover = old_rover;
     return NULL;
 }
 
 static void place(void *bp, size_t asize) {
     size_t csize = GET_SIZE(HDRP(bp));
 
-    // 만약 요청 들어온 크기를 현재 블록에 할당했음에도 남은 크기가 최소 블록 크기인 16바이트 이상이면
-    if ((csize - asize) >= (2 * DWSIZE)) {
+    remove_free_block(bp); // free block list에서 해당 블록 제거해줌
+
+    // 만약 요청 들어온 크기를 현재 블록에 할당했음에도 남은 크기가 최소 블록 크기인 24바이트 이상이면
+    if ((csize - asize) >= (MINBLOCKSIZE)) {
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
 
         bp = NEXT_BLKP(bp); // 요청 받은 asize 만큼 앞으로 이동하고
         PUT(HDRP(bp), PACK(csize - asize, 0)); // 그 자리에서 새로 header 써준다. 이전 블록 - 요청 받은 크기 (최소 16) 만큼으로.
         PUT(FTRP(bp), PACK(csize - asize, 0));
+
+        insert_free_block(bp);
     }
     else {
         PUT(HDRP(bp), PACK(csize, 1)); // 그게 아니면 걍 블록 전체 크기로 alloc bit만 바꿔준다.
         PUT(FTRP(bp), PACK(csize, 1));
+    }
+}
+
+/* 새 free block을 리스트 맨 앞(head)에 넣기 */
+static void insert_free_block(void *bp) {
+    char *current_head = free_listp;
+
+    SUCC(bp) = current_head;
+    PRED(bp) = NULL;
+
+    if (current_head != NULL) {
+        PRED(current_head) = bp;
+    }
+
+    free_listp = bp;
+}
+
+static void remove_free_block(void *bp) {
+    char *prev = PRED(bp);
+    char *next = SUCC(bp);
+
+    if (prev != NULL) {
+        SUCC(prev) = next;
+    } else {
+        free_listp = next; // prev가 NULL일 경우 맨 앞 블록을 제거하는 경우가 됨.
+    }
+    
+    if (next != NULL) {
+        PRED(next) = prev;
     }
 }
