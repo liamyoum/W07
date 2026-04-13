@@ -24,11 +24,11 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "ateam",
+    "Team 4",
     /* First member's full name */
-    "Harry Bovik",
+    "Liam Youm",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "waiting4corona@gmail.com",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
@@ -69,6 +69,7 @@ team_t team = {
 
 /* Static */
 static char *heap_listp;
+static char *rover;
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
@@ -94,6 +95,7 @@ int mm_init(void)
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1));      /* Epilogue header */
     heap_listp += DWSIZE;   // 이제 payload 앞, 여기서는 Prologue header와 footer 사이에 있음.
 
+    rover = heap_listp;
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     /* 왜 CHUNKSIZE를 WSIZE로 나눠주는 걸까? -> extend_heap이 인자로 words를 받음. 그래서 4096을 WSIZE인 4로 나눠주면, 워드가 1024개. 
        왜 그렇게 하는데? -> CHUNKSIZE 그대로 받으면 Bytes를 그대로 받는건데, extend_heap 내부 함수 구현을 보면 8 기준 alignment 하기 위해 홀수 / 짝수 분기 나눠 처리해줌. 바이트 그대로 받으면 8의 배수 맞추기 위해서 더 많은 조건 분기가 필요하고, 귀찮아질 것 */
@@ -184,12 +186,13 @@ void *mm_realloc(void *ptr, size_t size)
     /* 복사할 크기 계산, old block의 payload 최대 크기(header와 footer 제외) 구하기 */
     copySize = GET_SIZE(HDRP(ptr)) - DWSIZE;
 
-    /* min(old payload, new size) 만 복사, 왜? -> old block보다 더 많이 읽으면 안되고, new block보다 더 많이 쓰면 안됨.*/
-    if (size < copySize) { 
+    /* copySize가 원래 old block의 payload인데, 재할당하려는 size가 그것보다 작으면, copySize에 새로운 size를 덮어써야함. */
+    if (size < copySize) {
         copySize = size;
     }
 
     /* 기존 payload 내용을 새 payload로 옮기기, header footer 안 건드리고 순수 데이터만 복사 */
+    /* 즉, 이럴 경우 old payload의 데이터 중에서 새로 할당 받을 크기만큼의 앞 데이터만 보존 */
     memcpy(newptr, ptr, copySize);
     /* old block free */
     mm_free(ptr);
@@ -247,19 +250,50 @@ static void *coalesce(void *bp) {
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
+
+    /* coalesce 이후, next_fit에서 사용하는 rover가 payload의 내부 어딘가를 가리키고 있을 수 있어서, 조건 확인 후 병합된 블록의 payload 시작점으로 rover를 옮겨준다. */
+    if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp))) {
+        rover = bp;
+    }
+
     return bp;
 }
 
 static void *find_fit(size_t asize) {
     void *bp;
 
-    /* First Fit*/ // Need to test Next Fit additionally
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+    // /* First Fit */
+    // for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+    //     if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+    //         return bp;
+    //     }
+    // }
+
+    /* Next fit */
+    char *old_rover = rover;
+    /* 1차 탐색, rover부터 block 끝까지 */
+    while (GET_SIZE(HDRP(rover)) > 0) {
+        if (!GET_ALLOC(HDRP(rover)) && (asize <= GET_SIZE(HDRP(rover)))) {
+            bp = rover;
+            rover = NEXT_BLKP(rover);
             return bp;
         }
+        rover = NEXT_BLKP(rover);
     }
 
+    /* 2차 탐색, block 처음부터 rover 전까지*/
+    rover = heap_listp;
+    while (rover < old_rover) {
+        if (!(GET_ALLOC(HDRP(rover))) && (asize <= GET_SIZE(HDRP(rover)))) {
+            bp = rover;
+            rover = NEXT_BLKP(rover);
+            return bp;
+        }
+        rover = NEXT_BLKP(rover);
+    }
+
+    /* next_fit으로 못 찾았음 */
+    rover = old_rover;
     return NULL;
 }
 
