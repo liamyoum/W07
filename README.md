@@ -6,6 +6,8 @@
 지난 주에 사용했던 `malloc`을 이번 주에는 직접 만들어 봅니다.  
 랩 코드를 수정하고 채점 프로그램을 실행하면서 점수를 확인할 수 있으므로, 메모리와 포인터를 손으로 다뤄 보는 데 집중할 수 있습니다.
 
+현재까지는 explicit free list 구현까지 완료되어 있습니다.
+
 ## 학습 목표
 
 - 동적 메모리 할당이 어떻게 동작하는지 이해하기
@@ -39,7 +41,7 @@
 작성한 코드는 `malloc-lab/mdriver`가 테스트하고 채점합니다.  
 처음에는 **implicit list 방식**으로 기본 동작을 완성하는 것이 목표이고, 여유가 있다면 다음 방식으로 개선해 볼 수 있습니다.
 
-- explicit free list
+- explicit free list (구현 완료)
 - segregated free list
 - buddy system
 
